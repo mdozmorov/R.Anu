@@ -1,0 +1,148 @@
+ELAVL1 KO analysis in irradiated MCF7 and MB231 cell lines
+========================================================
+
+```{r setup, echo=FALSE, include=FALSE, cache=FALSE}
+library(knitr) 
+opts_chunk$set(cache.path='cache/', fig.path='img/', cache=F, tidy=T, fig.keep='high', echo=F, dpi=300, out.width=700)
+options(replace.assign=TRUE, width=120)
+rname<-"results//"
+```
+
+```{r loadData, echo=FALSE, warning=FALSE}
+X<-as.matrix(read.table("data//data_all.txt", sep="\t", header=T))
+class(X)<-"numeric"
+fNames<-readLines("data//featureNames.txt") # miRNA names
+fType<-readLines("data//featureType.txt") # Targets and Housekeeping
+# pheno Data frame of conditions
+P = data.frame(Cell=factor(ifelse(grepl("231", tolower(colnames(X))), "MB231", "MCF7")),
+               Rad=factor(ifelse(grepl("5gy", tolower(colnames(X))), "Rpos", "Rneg")),
+               KD=factor(ifelse(grepl("sihur", tolower(colnames(X))), "Sih", "Scr")))
+
+```
+
+The data were normalized by *Endogenous control*, then using quantile normalization. The Ct values were converted to expression counts using 2^(-Ct) formula.
+
+```{r preprocessData}
+# Normalize by deltaCt 
+normalizeCt = function(X, ref.genes) {
+  Xn = X
+  for (c in 1:ncol(Xn)) {
+    Xn[,c] = X[,c] - mean(X[ref.genes, c], na.rm=T)
+  }
+  Xn
+}
+
+library(limma)
+X[is.na(X)] = max(X, na.rm=T) # Replace undetected by maximum
+Xn = normalizeQuantiles(normalizeCt(X, grep("Endogenous Control", fType))) # Normalize by Ct and quantile
+rownames(Xn)<-fNames; colnames(Xn)<-colnames(X)
+Xne = 2 ^ (- Xn[!(fType %in% "Endogenous Control"), ]) # Convert to copy number counts
+```
+
+We visualize the top 20 most highly exressed miRNAs, and their relative expression level, simply for an overview.
+
+```{r visualization, fig.width=4, fig.height=4, error=FALSE}
+suppressMessages(library(gplots))
+rank.cor.dist = function(X) {
+  ranks = t(apply(X, 2, function(x){rank(x, ties.method="average")}))
+  as.dist((1-cor(ranks)) / 2)
+}
+#par(oma=c(5,0,0,5), mar=c(10, 4.1, 4.1, 5), cex.main=0.25)
+par(cex.main=0.25)
+heatmap.2(-Xne[order(-rowSums(Xne))[2:22],], col=redgreen(70), distfun=rank.cor.dist, 
+          scale="row", density.info="none", trace="none", cexRow=0.5, cexCol=0.5, 
+          main="Top 20 highly expressed miRNAs, Red/reen - high/low")
+```
+
+Principal component analysis for each cell type shows we have both siRNA and Rad effects.
+
+```{r pcaMCF7, fig.width=3, fig.height=3}
+par(cex=0.5)
+pcaVisual<-function(cellType){
+  X.pca = Xne[,P$Cell==cellType]
+  pca = prcomp(X.pca)$rotation
+  x = pca[,1]
+  y = pca[,2]
+  xadj<-0.1*(max(x)-min(x))
+  yadj<-0.1*(max(y)-min(y))
+  plot(x,y,xlab="PC1", ylab="PC2", main=cellType,
+       xlim=c(min(x) - xadj, max(x) + xadj), ylim=c(min(y) - yadj, max(y) + yadj),
+       pch=ifelse(P$KD=="Sih", 1, 2),
+       col=ifelse(P$Rad=="Rpos", "red", "blue")) 
+  text(x,y+0.05,labels=rownames(pca))
+  legend("bottomright", c("Sih/Rpos", "Scr/Rpos", "Sih/Rneg", "Scr/Rneg"), 
+       col=c("red","red","blue","blue"),
+       pch=c(1,2,1,2))
+}
+pcaVisual("MCF7")
+
+pcaVisual("MB231")
+```
+
+For each miRNA we define a ratio of siRNA effect in non-irradiated vs. irradiated cells, referred hereafter as the ratio.
+
+```{r differences, echo=FALSE}
+Rad_KO_Interaction<-function(cellType, trimOutliers=FALSE){
+  a<-(Xne[,P$Cell==cellType & P$KD=="Sih" & P$Rad=="Rpos"] /
+      Xne[,P$Cell==cellType & P$KD=="Scr" & P$Rad=="Rpos"]) /
+      (Xne[,P$Cell==cellType & P$KD=="Sih" & P$Rad=="Rneg"] /
+      Xne[,P$Cell==cellType & P$KD=="Scr" & P$Rad=="Rneg"]) 
+  for (i in 1:length(a)){
+    if (a[i]<1) {a[i]<- -(1/a[i])} # Convert rations to +/- scale
+  }
+  a.out<-a
+  fname<-cellType
+  if (trimOutliers) {
+    a<-a[!a==max(a)]
+    a<-a[!a==min(a)]
+    fname<-paste(fname, "trimmed", sep="_")
+  }
+  cut.min<-summary(a)[4]-1*sd(a, na.rm=T) # Low 1SD cutoff
+  cut.max<-summary(a)[4]+1*sd(a, na.rm=T) # High 1SD cutoff
+
+  par(cex=0.5)
+  hist(a, n=length(unique(a)), freq=F, main=paste("Density distribution of the ratio for", cellType), xlab="Normalized expression counts")
+  curve(dnorm(x, mean=mean(a), sd=sd(a)), add=T )
+  
+  cat("Min threshold:", cut.min, "how many miRNAs:", sum(a<cut.min), 
+      "Max threshold:", cut.max, "how many miRNAs:", sum(a>cut.max), "\n")
+  
+  mtx<- -Xne[a.out<cut.min | a.out>cut.max, P$Cell==cellType]
+  heatmap.2(mtx, Colv=F, col=redgreen(70), scale="row", density.info="none", trace="none", cexRow=0.5, cexCol=0.5)
+  write.table(a.out[a.out<cut.min | a.out>cut.max], paste(rname, fname, ".txt", sep=""), sep="\t", row.names=T, col.names=F)
+  cbind(rownames(mtx), X[fNames %in% rownames(mtx), P$Cell==cellType])
+}
+```
+
+MCF7
+----------------
+
+First, we look at the distribution of the ratio. Then, we fit a normal distribution to it, and define min/max cutoffs as 1 standard deviation around its mean. We check how many miRNAs are above the maximum or below the minimum thresholds and visualize their normalized expression counts as a heatmap. We also check the raw Ct values for these miRNAs.
+
+```{r noTrimmingMCF7, fig.width=4, fig.height=4, results='markup', warning=FALSE, error=FALSE}
+Rad_KO_Interaction("MCF7", trimOutliers=F)
+```
+
+We observe two outliers on both sides of the distribution. They expand the fitting of the normal distribution, and make min/max thresholds overinflated. 
+
+To alleviate this bias, we remove those outliers, check the cutoffs and the number of miRNAs above the cutoffs, visualize them as a heatmap and look at their raw Ct values. 
+
+```{r withTrimmingMCF7, fig.width=4, fig.height=4, results='markup', warning=FALSE, error=FALSE}
+Rad_KO_Interaction("MCF7", trimOutliers=T)
+```
+
+MB231
+-------------
+
+We repeat the same steps for MB231 cell line, first using the data as is,
+
+```{r noTrimmingMB231, fig.width=4, fig.height=4, results='markup', warning=FALSE, error=FALSE}
+Rad_KO_Interaction("MB231", trimOutliers=F)
+```
+
+then, trimming outliers.
+
+```{r withTrimmingMB231, fig.width=4, fig.height=4, results='markup', warning=FALSE, error=FALSE}
+Rad_KO_Interaction("MB231", trimOutliers=T)
+```
+
