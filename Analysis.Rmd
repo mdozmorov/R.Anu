@@ -169,12 +169,12 @@ Overlap between cell lines
 --------------------------
 First, check overlap between the most significant miRNAs (without removing outliers).
 ```{r vennTop}
-mtx<-combineMatrix(c1.1, c1.2)
+mtx<-combineMatrix(c1.1, c2.1)
 colnames(mtx)<-c("MCF7", "MB231")
 vennDiagram(mtx)
 r.mtx<-rownames(mtx)[rowSums(mtx) == 2]
 par(oma=c(4,0,0,3))
-heatmap.2(-Xne[r.mtx,], col=redgreen(70), distfun=rank.cor.dist, Colv=F,
+heatmap.2(-Xne[r.mtx,], col=redgreen(70), distfun=rank.cor.dist, Rowv=F, Colv=F,
           scale="row", density.info="none", trace="none", cexRow=1, cexCol=1, 
           main="Overlapping top miRNAs\nRed/reen - high/low")
 cat("\nNormalized RELATIVE Ct value changes\n")
@@ -184,7 +184,7 @@ writeLines(r.mtx, paste(rname, "MCF7-MB231_top", ".txt", sep=""))
 
 Then, check overlap between the larger lists of significant miRNAs (with removing outliers).
 ```{r vennTop+}
-mtx<-combineMatrix(c2.1, c2.2)
+mtx<-combineMatrix(c1.2, c2.2)
 colnames(mtx)<-c("MCF7", "MB231")
 vennDiagram(mtx)
 r.mtx<-rownames(mtx)[rowSums(mtx) == 2]
