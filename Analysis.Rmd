@@ -49,7 +49,7 @@ rank.cor.dist = function(X) {
 }
 #par(oma=c(5,0,0,5), mar=c(10, 4.1, 4.1, 5), cex.main=0.25)
 par(cex.main=0.25)
-heatmap.2(-Xne[order(-rowSums(Xne))[2:22],], col=redgreen(70), distfun=rank.cor.dist, 
+heatmap.2(-Xne[order(-rowSums(Xne))[2:22],], col=redgreen(70), Colv=F, distfun=rank.cor.dist, 
           scale="row", density.info="none", trace="none", cexRow=0.5, cexCol=0.5, 
           main="Top 20 highly expressed miRNAs, Red/reen - high/low")
 ```
@@ -110,7 +110,12 @@ Rad_KO_Interaction<-function(cellType, trimOutliers=FALSE){
   mtx<- -Xne[a.out<cut.min | a.out>cut.max, P$Cell==cellType]
   heatmap.2(mtx, Colv=F, col=redgreen(70), scale="row", density.info="none", trace="none", cexRow=0.5, cexCol=0.5)
   write.table(a.out[a.out<cut.min | a.out>cut.max], paste(rname, fname, ".txt", sep=""), sep="\t", row.names=T, col.names=F)
-  cbind(rownames(mtx), X[fNames %in% rownames(mtx), P$Cell==cellType])
+  cat("Raw Ct values\n")
+  print(cbind(rownames(mtx), X[fNames %in% rownames(mtx), P$Cell==cellType]))
+  cat("\nNormalized Ct values\n
+      Note that the mean of endogenous control probes was subtracted from the Ct values, hence some values are negative. Look for RELATIVE comparisons, not absolute Ct values.\n")
+  print(formatC(Xne[rownames(Xne) %in% rownames(mtx), P$Cell==cellType], format="f"))
+  return(rownames(mtx))
 }
 ```
 
@@ -120,7 +125,7 @@ MCF7
 First, we look at the distribution of the ratio. Then, we fit a normal distribution to it, and define min/max cutoffs as 1 standard deviation around its mean. We check how many miRNAs are above the maximum or below the minimum thresholds and visualize their normalized expression counts as a heatmap. We also check the raw Ct values for these miRNAs.
 
 ```{r noTrimmingMCF7, fig.width=4, fig.height=4, results='markup', warning=FALSE, error=FALSE}
-Rad_KO_Interaction("MCF7", trimOutliers=F)
+c1.1<-Rad_KO_Interaction("MCF7", trimOutliers=F)
 ```
 
 We observe two outliers on both sides of the distribution. They expand the fitting of the normal distribution, and make min/max thresholds overinflated. 
@@ -128,7 +133,7 @@ We observe two outliers on both sides of the distribution. They expand the fitti
 To alleviate this bias, we remove those outliers, check the cutoffs and the number of miRNAs above the cutoffs, visualize them as a heatmap and look at their raw Ct values. 
 
 ```{r withTrimmingMCF7, fig.width=4, fig.height=4, results='markup', warning=FALSE, error=FALSE}
-Rad_KO_Interaction("MCF7", trimOutliers=T)
+c1.2<-Rad_KO_Interaction("MCF7", trimOutliers=T)
 ```
 
 MB231
@@ -137,12 +142,59 @@ MB231
 We repeat the same steps for MB231 cell line, first using the data as is,
 
 ```{r noTrimmingMB231, fig.width=4, fig.height=4, results='markup', warning=FALSE, error=FALSE}
-Rad_KO_Interaction("MB231", trimOutliers=F)
+c2.1<-Rad_KO_Interaction("MB231", trimOutliers=F)
 ```
 
 then, trimming outliers.
 
 ```{r withTrimmingMB231, fig.width=4, fig.height=4, results='markup', warning=FALSE, error=FALSE}
-Rad_KO_Interaction("MB231", trimOutliers=T)
+c2.2<-Rad_KO_Interaction("MB231", trimOutliers=T)
 ```
+
+
+```{r vennDiagPrepare}
+source("venn4.R")
+
+combineMatrix<-function(i, j){
+  m.uniq<-unique(c(i, j))
+  mtx<-matrix(data=0, nrow=length(m.uniq), ncol=2)
+  rownames(mtx)<-m.uniq
+  mtx[i, 1]<-1
+  mtx[j, 2]<-1
+  mtx
+}
+```
+
+Overlap between cell lines
+--------------------------
+First, check overlap between the most significant miRNAs (without removing outliers).
+```{r vennTop}
+mtx<-combineMatrix(c1.1, c1.2)
+colnames(mtx)<-c("MCF7", "MB231")
+vennDiagram(mtx)
+r.mtx<-rownames(mtx)[rowSums(mtx) == 2]
+par(oma=c(4,0,0,3))
+heatmap.2(-Xne[r.mtx,], col=redgreen(70), distfun=rank.cor.dist, Colv=F,
+          scale="row", density.info="none", trace="none", cexRow=1, cexCol=1, 
+          main="Overlapping top miRNAs\nRed/reen - high/low")
+cat("\nNormalized RELATIVE Ct value changes\n")
+print(Xn[r.mtx,])
+writeLines(r.mtx, paste(rname, "MCF7-MB231_top", ".txt", sep=""))
+```
+
+Then, check overlap between the larger lists of significant miRNAs (with removing outliers).
+```{r vennTop+}
+mtx<-combineMatrix(c2.1, c2.2)
+colnames(mtx)<-c("MCF7", "MB231")
+vennDiagram(mtx)
+r.mtx<-rownames(mtx)[rowSums(mtx) == 2]
+par(oma=c(4,0,0,3))
+heatmap.2(-Xne[r.mtx,], col=redgreen(70), distfun=rank.cor.dist, Colv=F,
+          scale="row", density.info="none", trace="none", cexRow=1, cexCol=1, 
+          main="Overlapping top+ miRNAs\nRed/reen - high/low")
+cat("\nNormalized RELATIVE Ct value changes\n")
+print(Xn[r.mtx,])
+writeLines(r.mtx, paste(rname, "MCF7-MB231_top+", ".txt", sep=""))
+```
+
 
